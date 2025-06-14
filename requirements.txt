@@ -1,7 +1,1 @@
-fastapi==0.104.1
-uvicorn==0.24.0
-gunicorn==21.2.0
-python-multipart==0.0.6
-jinja2==3.1.2
-python-dotenv==1.0.0
-pydantic==2.5.0
+"fastapi==0.104.1uvicorn==0.24.0python-multipart==0.0.6jinja2==3.1.2python-dotenv==1.0.0pydantic==2.5.0" 
