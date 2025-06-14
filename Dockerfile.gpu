@@ -1,0 +1,58 @@
+# GPU destekli Dockerfile
+FROM nvidia/cuda:12.1-devel-ubuntu22.04
+
+# Sistem bağımlılıklarını yükle
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3.10-venv \
+    python3-pip \
+    libgdal-dev \
+    gdal-bin \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 3.10'u varsayılan yap
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
+
+# Çalışma dizinini ayarla
+WORKDIR /app
+
+# Python bağımlılıklarını kopyala ve yükle
+COPY requirements.txt .
+
+# GPU destekli PyTorch kurulumu
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Diğer bağımlılıkları yükle
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Uygulama dosyalarını kopyala
+COPY . .
+
+# Gerekli dizinleri oluştur
+RUN mkdir -p data/analizler models static templates
+
+# Port ayarı
+EXPOSE 8000
+
+# Kullanıcı oluştur (güvenlik için)
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+# GPU test scripti
+COPY scripts/gpu_test.py /app/gpu_test.py
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python3 -c "import requests; requests.get('http://localhost:8000/health')"
+
+# Uygulamayı başlat
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--worker-class", "uvicorn.workers.UvicornWorker", "--timeout", "300", "app.main:app"]

@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # FastAPI uygulaması
+  app:
+    build: .
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./backups:/backups
+    environment:
+      - PYTHONPATH=/app
+      - SECRET_KEY=${SECRET_KEY}
+      - DATABASE_URL=${DATABASE_URL:-data/analiz.db}
+      - DEBUG=${DEBUG:-False}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-100}
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-3600}
+      - BACKUP_DIR=${BACKUP_DIR:-/backups}
+      - METRICS_ENABLED=${METRICS_ENABLED:-True}
+      - EMAIL_ENABLED=${EMAIL_ENABLED:-False}
+      - REMOTE_BACKUP_ENABLED=${REMOTE_BACKUP_ENABLED:-False}
+    restart: unless-stopped
+    networks:
+      - zeytin-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - nginx
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./static:/var/www/static:ro
+    restart: unless-stopped
+    networks:
+      - zeytin-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  zeytin-network:
+    driver: bridge
+
+volumes:
+  zeytin-data:
+    driver: local
+  zeytin-backups:
+    driver: local
