@@ -1,22 +1,42 @@
+# Core web framework
 fastapi==0.104.1
 uvicorn==0.24.0
 gunicorn==21.2.0
+
+# File handling
 python-multipart==0.0.6
 aiofiles==23.2.1
 python-magic==0.4.27
+
+# Image processing
 pillow==10.2.0
+
+# Computer vision - headless only
 opencv-python-headless==4.8.1.78
 numpy==1.24.4
-ultralytics==8.0.196
-torch==2.1.0
-torchvision==0.16.0
-torchaudio==2.1.0
+
+# PyTorch CPU ONLY (much smaller)
+torch==2.1.0+cpu
+torchvision==0.16.0+cpu
+--find-links https://download.pytorch.org/whl/cpu
+
+# Basic ML without heavy dependencies
+# ultralytics==8.0.196  
+# Reports
 reportlab==4.0.7
 openpyxl==3.1.2
+
+# Web
 jinja2==3.1.2
 python-dotenv==1.0.0
 pydantic==2.5.0
+
+# Database
 sqlalchemy==2.0.23
+
+# Auth
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
+
+# System
 psutil==5.9.6
