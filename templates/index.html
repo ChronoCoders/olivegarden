@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zeytin Ağacı Analiz Sistemi</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-seedling"></i>
+                    <h1>Zeytin Ağacı Analiz Sistemi</h1>
+                </div>
+                <p class="subtitle">AI destekli zeytin bahçesi analizi ve raporlama</p>
+                
+                <!-- GPU Status Indicator -->
+                <div class="gpu-status" id="gpuStatus">
+                    <div class="gpu-indicator">
+                        <i class="fas fa-microchip"></i>
+                        <span id="gpuStatusText">GPU durumu kontrol ediliyor...</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="upload-section">
+                <div class="upload-card">
+                    <div class="upload-header">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <h2>Dosya Yükleme</h2>
+                        <p>RGB görüntüleri ve multispektral dosyalarınızı yükleyin</p>
+                    </div>
+                    
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-content">
+                            <i class="fas fa-file-image upload-icon"></i>
+                            <p class="upload-text">Dosyalarınızı buraya sürükleyin veya <span class="upload-link">seçmek için tıklayın</span></p>
+                            <p class="upload-info">Desteklenen formatlar: JPG, PNG, TIF (Max: 100MB/dosya)</p>
+                        </div>
+                        <input type="file" id="fileInput" multiple accept=".jpg,.jpeg,.png,.tif,.tiff" style="display: none;">
+                    </div>
+
+                    <div class="file-list" id="fileList" style="display: none;">
+                        <h3>Seçilen Dosyalar:</h3>
+                        <ul id="selectedFiles"></ul>
+                    </div>
+
+                    <!-- Analysis Mode Selection -->
+                    <div class="analysis-mode-section" id="analysisModeSection" style="display: none;">
+                        <h3>Analiz Modu Seçimi</h3>
+                        <div class="mode-options">
+                            <label class="mode-option">
+                                <input type="radio" name="analysisMode" value="cpu" checked>
+                                <div class="mode-card">
+                                    <i class="fas fa-microchip"></i>
+                                    <h4>CPU Modu</h4>
+                                    <p>Standart işlemci ile analiz</p>
+                                    <span class="mode-speed">Orta hız</span>
+                                </div>
+                            </label>
+                            <label class="mode-option" id="gpuModeOption" style="display: none;">
+                                <input type="radio" name="analysisMode" value="gpu">
+                                <div class="mode-card gpu-card">
+                                    <i class="fas fa-bolt"></i>
+                                    <h4>GPU Modu</h4>
+                                    <p>Grafik kartı ile hızlandırılmış analiz</p>
+                                    <span class="mode-speed">Yüksek hız</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" id="uploadBtn" disabled>
+                        <i class="fas fa-upload"></i>
+                        Dosyaları Yükle
+                    </button>
+                </div>
+            </div>
+
+            <div class="analysis-section" id="analysisSection" style="display: none;">
+                <div class="analysis-card">
+                    <div class="analysis-header">
+                        <i class="fas fa-chart-line"></i>
+                        <h2>Analiz Sonuçları</h2>
+                        <div class="analysis-info">
+                            <span class="analysis-mode-badge" id="analysisModeBadge">CPU</span>
+                            <span class="analysis-time" id="analysisTime"></span>
+                        </div>
+                    </div>
+                    
+                    <div class="analysis-status" id="analysisStatus">
+                        <div class="loading">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <p>Analiz yapılıyor...</p>
+                            <p class="analysis-progress" id="analysisProgress">Başlatılıyor...</p>
+                        </div>
+                    </div>
+
+                    <div class="analysis-results" id="analysisResults" style="display: none;">
+                        <div class="results-grid">
+                            <div class="result-card">
+                                <div class="result-icon">
+                                    <i class="fas fa-tree"></i>
+                                </div>
+                                <div class="result-content">
+                                    <h3>Toplam Ağaç</h3>
+                                    <p class="result-value" id="toplamAgac">-</p>
+                                </div>
+                            </div>
+
+                            <div class="result-card">
+                                <div class="result-icon">
+                                    <i class="fas fa-circle"></i>
+                                </div>
+                                <div class="result-content">
+                                    <h3>Toplam Zeytin</h3>
+                                    <p class="result-value" id="toplamZeytin">-</p>
+                                </div>
+                            </div>
+
+                            <div class="result-card">
+                                <div class="result-icon">
+                                    <i class="fas fa-weight-hanging"></i>
+                                </div>
+                                <div class="result-content">
+                                    <h3>Tahmini Miktar</h3>
+                                    <p class="result-value" id="tahminiMiktar">-</p>
+                                </div>
+                            </div>
+
+                            <div class="result-card">
+                                <div class="result-icon">
+                                    <i class="fas fa-heartbeat"></i>
+                                </div>
+                                <div class="result-content">
+                                    <h3>Sağlık Durumu</h3>
+                                    <p class="result-value" id="saglikDurumu">-</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="ndvi-section">
+                            <h3>Spektral İndeksler</h3>
+                            <div class="ndvi-grid">
+                                <div class="ndvi-item">
+                                    <span class="ndvi-label">NDVI:</span>
+                                    <span class="ndvi-value" id="ndviValue">-</span>
+                                </div>
+                                <div class="ndvi-item">
+                                    <span class="ndvi-label">GNDVI:</span>
+                                    <span class="ndvi-value" id="gndviValue">-</span>
+                                </div>
+                                <div class="ndvi-item">
+                                    <span class="ndvi-label">NDRE:</span>
+                                    <span class="ndvi-value" id="ndreValue">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Performance Info -->
+                        <div class="performance-section">
+                            <h3>Performans Bilgileri</h3>
+                            <div class="performance-grid">
+                                <div class="performance-item">
+                                    <span class="performance-label">Analiz Süresi:</span>
+                                    <span class="performance-value" id="performanceTime">-</span>
+                                </div>
+                                <div class="performance-item">
+                                    <span class="performance-label">Kullanılan Cihaz:</span>
+                                    <span class="performance-value" id="performanceDevice">-</span>
+                                </div>
+                                <div class="performance-item">
+                                    <span class="performance-label">İşlenen Dosya:</span>
+                                    <span class="performance-value" id="performanceFiles">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>&copy; 2025 Zeytin Ağacı Analiz Sistemi. Tüm hakları saklıdır.</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

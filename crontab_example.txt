@@ -1,0 +1,69 @@
+# Zeytin Ağacı Analiz Sistemi - Crontab Örneği
+# Bu dosyayı crontab -e ile düzenleyerek sisteminize ekleyin
+
+# Günlük otomatik yedekleme (her gece 02:00'de)
+0 2 * * * /opt/zeytin-analiz/scripts/backup_cron.sh >> /var/log/zeytin-backup.log 2>&1
+
+# Haftalık eski yedek temizleme (her pazar 03:00'de)
+0 3 * * 0 find /backups -name "zeytin_analiz_*.tar.gz" -mtime +30 -delete
+
+# Sistem durumu kontrolü (her 6 saatte)
+0 */6 * * * /usr/local/bin/zeytin-monitor.sh >> /var/log/zeytin-monitor.log 2>&1
+
+# Log dosyası rotasyonu (her gece 01:00'de)
+0 1 * * * /usr/sbin/logrotate /etc/logrotate.d/zeytin-analiz
+
+# Docker container sağlık kontrolü (her 30 dakikada)
+*/30 * * * * docker-compose -f /opt/zeytin-analiz/docker-compose.yml ps | grep -q "Up" || docker-compose -f /opt/zeytin-analiz/docker-compose.yml restart
+
+# Disk alanı kontrolü (her gün 12:00'de)
+0 12 * * * df -h / | awk 'NR==2{if($5+0 > 85) print "UYARI: Disk kullanımı yüksek: " $5}' | mail -s "Disk Uyarısı" admin@example.com
+
+# Geçici dosya temizleme (her gece 04:00'de)
+0 4 * * * find /tmp -name "temp_validation_*" -mtime +1 -delete
+
+# SSL sertifika yenileme kontrolü (her ay 1'inde)
+0 0 1 * * certbot renew --quiet && docker-compose -f /opt/zeytin-analiz/docker-compose.yml restart nginx
+
+# Veritabanı optimizasyonu (her hafta pazartesi 05:00'de)
+0 5 * * 1 sqlite3 /opt/zeytin-analiz/data/analiz.db "VACUUM; REINDEX;"
+
+# Sistem güncellemesi kontrolü (her hafta cumartesi 06:00'de)
+0 6 * * 6 apt list --upgradable | grep -q upgradable && echo "Sistem güncellemeleri mevcut" | mail -s "Güncelleme Bildirimi" admin@example.com
+
+# GPU durumu kontrolü (GPU varsa, her 2 saatte)
+0 */2 * * * nvidia-smi > /dev/null 2>&1 || echo "GPU problemi tespit edildi" | mail -s "GPU Uyarısı" admin@example.com
+
+# Analiz dosyalarının eski olanlarını temizle (her ay 15'inde)
+0 0 15 * * find /opt/zeytin-analiz/data/analizler -type d -mtime +90 -exec rm -rf {} \; 2>/dev/null
+
+# Nginx access log analizi (her gün 23:00'de)
+0 23 * * * tail -1000 /var/log/nginx/access.log | awk '{print $1}' | sort | uniq -c | sort -nr | head -10 > /var/log/top_ips.log
+
+# Backup dosyalarının uzak sunucuya yüklenmesi (her gün 03:30'da)
+30 3 * * * rsync -avz --delete /backups/ backup-server:/remote/backups/zeytin-analiz/
+
+# Sistem performans loglaması (her 15 dakikada)
+*/15 * * * * echo "$(date): CPU: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}'), RAM: $(free | grep Mem | awk '{printf("%.1f%%", $3*100/$2)}')" >> /var/log/performance.log
+
+# E-posta bildirimi testi (her pazartesi 09:00'de)
+0 9 * * 1 echo "Zeytin Analiz Sistemi çalışıyor - $(date)" | mail -s "Haftalık Durum Raporu" admin@example.com
+
+# Docker imaj temizleme (her ay 1'inde 07:00'de)
+0 7 1 * * docker system prune -f
+
+# Fail2ban durumu kontrolü (her gün 08:00'de)
+0 8 * * * fail2ban-client status | grep -q "Status" || systemctl restart fail2ban
+
+# Özel analiz raporu oluşturma (her hafta cuma 17:00'de)
+0 17 * * 5 python3 /opt/zeytin-analiz/scripts/weekly_report.py
+
+# Yedek dosyalarının bütünlük kontrolü (her hafta pazar 04:00'de)
+0 4 * * 0 for backup in /backups/zeytin_analiz_*.tar.gz; do tar -tzf "$backup" > /dev/null || echo "Bozuk yedek: $backup" | mail -s "Yedek Uyarısı" admin@example.com; done
+
+# Sistem kaynak kullanımı uyarısı (her saat)
+0 * * * * [ $(free | grep Mem | awk '{printf("%.0f", $3*100/$2)}') -gt 90 ] && echo "Yüksek RAM kullanımı: $(free -h)" | mail -s "RAM Uyarısı" admin@example.com
+
+# Web servis erişilebilirlik kontrolü (her 5 dakikada)
+*/5 * * * * curl -f http://localhost/health > /dev/null 2>&1 || echo "Web servisi erişilemiyor" | mail -s "Servis Uyarısı" admin@example.com
+</crontab_example.txt>
