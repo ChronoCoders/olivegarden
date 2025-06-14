@@ -1,4 +1,4 @@
-# 🫒 Zeytin Ağacı Analiz Sistemi
+# Zeytin Ağacı Analiz Sistemi
 
 **Production-Grade** AI destekli zeytin bahçesi analizi ve raporlama sistemi. Python FastAPI, YOLOv8, multispektral görüntü analizi ve kapsamlı raporlama özellikleri ile geliştirilmiştir.
 
