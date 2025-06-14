@@ -8,7 +8,7 @@ pillow==10.4.0
 opencv-python-headless==4.8.1.78
 numpy==1.26.4
 ultralytics==8.1.0
-torch==2.5.0
+torch==2.6.0
 torchvision==0.21.0
 torchaudio==2.6.0
 reportlab==4.0.7
