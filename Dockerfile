@@ -1,11 +1,11 @@
-### Dockerfile (CPU-only)
+### Dockerfile (use Python 3.12 to ensure prebuilt NumPy wheels)
 # Use official slim Python base image
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements and install dependencies (including PyTorch CPU wheels)
+# Copy and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir \
     --extra-index-url https://download.pytorch.org/whl/cpu \
