@@ -1,4 +1,4 @@
-# Use the PyTorch CPU wheels index
+# CPU-only PyTorch tekerleklerini bulabilmek için
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 fastapi==0.104.1
