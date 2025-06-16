@@ -1,8 +1,8 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request, Depends
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request, Depends, Header
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.security import HTTPBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import List, Optional
 from pydantic import BaseModel
 import os
@@ -21,9 +21,10 @@ from .rate_limiter import check_rate_limit
 from .middleware import LoggingMiddleware, SecurityHeadersMiddleware
 from .backup import backup_manager
 from .validation import file_validator
-from .database import init_db, get_db_connection
+from .database import init_db, get_db_connection, create_analysis, get_analysis, update_analysis, add_file_upload
 from .config import settings
 from .constants import ERROR_MESSAGES, SUCCESS_MESSAGES, API_RESPONSES
+from .models import model_manager, model_trainer
 
 # Logging yapılandırması
 logging.basicConfig(
@@ -58,7 +59,7 @@ init_db()
 analizci = ZeytinAnalizci()
 
 # Security
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 # Metrics için global değişkenler
 metrics_data = {
@@ -84,6 +85,12 @@ class UserCreateRequest(BaseModel):
     email: str
     sifre: str
     rol: Optional[str] = "standart"
+
+class ModelTrainingRequest(BaseModel):
+    images_dir: str
+    annotations_dir: str
+    model_name: Optional[str] = "custom_olive"
+    epochs: Optional[int] = 100
 
 def update_metrics(endpoint: str, error: bool = False):
     """Metrics güncelle"""
@@ -114,82 +121,27 @@ def safe_error_response(status_code: int, detail: str, log_detail: str = None):
     
     raise HTTPException(status_code=status_code, detail=detail)
 
+def get_current_user_from_header(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    """Get current user from Authorization header"""
+    if not credentials:
+        return None
+    
+    try:
+        return get_current_user(credentials.credentials)
+    except HTTPException:
+        return None
+
+def get_admin_user_from_header(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Get admin user from Authorization header"""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authorization header required")
+    
+    return get_admin_user(credentials.credentials)
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     """Ana sayfa"""
     return templates.TemplateResponse("index.html", {"request": request})
-
-# Metrics endpoint
-@app.get("/metrics")
-async def get_metrics():
-    """Prometheus uyumlu metrics"""
-    if not settings.METRICS_ENABLED:
-        raise HTTPException(status_code=404, detail="Metrics devre dışı")
-    
-    try:
-        # Sistem metrikleri
-        memory = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
-        cpu_percent = psutil.cpu_percent(interval=1)
-        
-        # GPU metrikleri
-        gpu_status = gpu_detector.get_gpu_status()
-        
-        metrics_text = f"""# HELP zeytin_requests_total Toplam API istekleri
-# TYPE zeytin_requests_total counter
-zeytin_requests_total {metrics_data["requests_total"]}
-
-# HELP zeytin_analysis_total Toplam analiz sayısı
-# TYPE zeytin_analysis_total counter
-zeytin_analysis_total {metrics_data["analysis_count"]}
-
-# HELP zeytin_gpu_usage_total GPU kullanım sayısı
-# TYPE zeytin_gpu_usage_total counter
-zeytin_gpu_usage_total {metrics_data["gpu_usage_count"]}
-
-# HELP zeytin_cpu_usage_total CPU kullanım sayısı
-# TYPE zeytin_cpu_usage_total counter
-zeytin_cpu_usage_total {metrics_data["cpu_usage_count"]}
-
-# HELP zeytin_errors_total Toplam hata sayısı
-# TYPE zeytin_errors_total counter
-zeytin_errors_total {metrics_data["errors_total"]}
-
-# HELP zeytin_upload_size_bytes Toplam yüklenen dosya boyutu
-# TYPE zeytin_upload_size_bytes counter
-zeytin_upload_size_bytes {metrics_data["upload_size_total"]}
-
-# HELP system_cpu_percent CPU kullanım yüzdesi
-# TYPE system_cpu_percent gauge
-system_cpu_percent {cpu_percent}
-
-# HELP system_memory_percent Bellek kullanım yüzdesi
-# TYPE system_memory_percent gauge
-system_memory_percent {memory.percent}
-
-# HELP system_disk_percent Disk kullanım yüzdesi
-# TYPE system_disk_percent gauge
-system_disk_percent {(disk.used / disk.total) * 100}
-
-# HELP gpu_available GPU mevcut mu
-# TYPE gpu_available gauge
-gpu_available {1 if gpu_status.get('gpu_available', False) else 0}
-"""
-        
-        # Endpoint bazlı metrikler
-        for endpoint, count in metrics_data["requests_by_endpoint"].items():
-            safe_endpoint = endpoint.replace("/", "_").replace("-", "_")
-            metrics_text += f"""
-# HELP zeytin_requests_by_endpoint_{safe_endpoint} {endpoint} endpoint istekleri
-# TYPE zeytin_requests_by_endpoint_{safe_endpoint} counter
-zeytin_requests_by_endpoint_{safe_endpoint} {count}
-"""
-        
-        return Response(content=metrics_text, media_type="text/plain")
-        
-    except Exception as e:
-        logger.error(f"Metrics hatası: {str(e)}")
-        safe_error_response(500, "Metrics alınamadı", str(e))
 
 # Enhanced Health Check
 @app.get("/health")
@@ -248,11 +200,12 @@ async def health_check():
         
         # Model dosyası kontrolü
         try:
-            model_exists = os.path.exists(settings.YOLO_MODEL_PATH)
-            checks["model_available"] = model_exists
-            if model_exists:
-                model_size = os.path.getsize(settings.YOLO_MODEL_PATH)
+            best_model = model_manager.get_best_model()
+            checks["model_available"] = best_model is not None
+            if best_model:
+                model_size = os.path.getsize(best_model)
                 checks["model_size_mb"] = round(model_size / (1024**2), 2)
+                checks["model_path"] = best_model
         except Exception as e:
             checks["model_available"] = False
             logger.error(f"Model check failed: {e}")
@@ -311,9 +264,12 @@ async def giris(request: Request, login_data: LoginRequest):
             safe_error_response(401, "Geçersiz kimlik bilgileri")
         
         access_token = auth_manager.create_access_token(
-            data={"user_id": user["kullanici_id"], "username": user["kullanici_adi"]}
+            data={"user_id": user["kullanici_id"], "username": user["kullanici_adi"], "role": user["rol"]}
         )
         refresh_token = auth_manager.create_refresh_token(user["kullanici_id"])
+        
+        # Update last login
+        auth_manager.update_last_login(user["kullanici_id"])
         
         logger.info(f"Başarılı giriş: {user['kullanici_adi']}")
         
@@ -358,7 +314,7 @@ async def token_yenile(request: Request, refresh_token: str):
         safe_error_response(500, "Token yenileme hatası", str(e))
 
 @app.post("/auth/cikis")
-async def cikis(request: Request, current_user: dict = Depends(get_current_user)):
+async def cikis(request: Request, current_user: dict = Depends(get_current_user_from_header)):
     """Kullanıcı çıkışı"""
     update_metrics("/auth/cikis")
     
@@ -369,15 +325,17 @@ async def cikis(request: Request, current_user: dict = Depends(get_current_user)
             token = auth_header.split(" ")[1]
             auth_manager.revoke_token(token)
         
-        logger.info(f"Kullanıcı çıkışı: {current_user['kullanici_adi']}")
-        return {"message": SUCCESS_MESSAGES["user_created"]}
+        if current_user:
+            logger.info(f"Kullanıcı çıkışı: {current_user['kullanici_adi']}")
+        
+        return {"message": "Başarıyla çıkış yapıldı"}
     except Exception as e:
         update_metrics("/auth/cikis", error=True)
         safe_error_response(500, "Çıkış hatası", str(e))
 
 @app.post("/auth/kullanici-olustur")
 async def kullanici_olustur(request: Request, user_data: UserCreateRequest, 
-                           admin_user: dict = Depends(get_admin_user)):
+                           admin_user: dict = Depends(get_admin_user_from_header)):
     """Yeni kullanıcı oluştur (sadece admin)"""
     await check_rate_limit(request)
     update_metrics("/auth/kullanici-olustur")
@@ -423,7 +381,7 @@ async def gpu_durum():
 
 @app.post("/analiz/yukle")
 async def dosya_yukle(request: Request, dosyalar: List[UploadFile] = File(...),
-                     current_user: dict = Depends(get_current_user_optional)):
+                     current_user: dict = Depends(get_current_user_from_header)):
     """Dosya yükleme endpoint'i"""
     await check_rate_limit(request, "/analiz/yukle")
     update_metrics("/analiz/yukle")
@@ -461,6 +419,13 @@ async def dosya_yukle(request: Request, dosyalar: List[UploadFile] = File(...),
                 dosya_uzantisi = dosya.filename.split('.')[-1].lower()
                 dosya_tipi = "RGB" if dosya_uzantisi in ['jpg', 'jpeg', 'png'] else "Multispektral"
                 
+                # Dosya hash'i
+                import hashlib
+                dosya_hash = hashlib.md5(dosya_icerik).hexdigest()
+                
+                # Database'e kaydet
+                add_file_upload(analiz_id, dosya.filename, dosya_boyutu, dosya_tipi, dosya_hash, dosya_yolu)
+                
                 yuklenen_dosyalar.append({
                     "dosya_adi": dosya.filename,
                     "dosya_boyutu": dosya_boyutu,
@@ -471,6 +436,10 @@ async def dosya_yukle(request: Request, dosyalar: List[UploadFile] = File(...),
         
         # Metrics güncelle
         metrics_data["upload_size_total"] += toplam_boyut
+        
+        # Analiz kaydı oluştur
+        kullanici_id = current_user["kullanici_id"] if current_user else None
+        create_analysis(analiz_id, len(yuklenen_dosyalar), kullanici_id)
         
         # Log dosyası oluştur
         log_yolu = os.path.join(analiz_klasoru, "log.txt")
@@ -509,7 +478,7 @@ async def analiz_baslat(
     request: Request,
     analiz_id: str = Form(...),
     analiz_modu: str = Form(default="cpu"),
-    admin_user: dict = Depends(get_admin_user)
+    admin_user: dict = Depends(get_admin_user_from_header)
 ):
     """Analiz başlatma endpoint'i"""
     await check_rate_limit(request, "/analiz/baslat")
@@ -588,7 +557,7 @@ async def analiz_baslat(
 
 @app.post("/analiz/baslat-json")
 async def analiz_baslat_json(request: Request, analysis_request: AnalysisRequest,
-                            admin_user: dict = Depends(get_admin_user)):
+                            admin_user: dict = Depends(get_admin_user_from_header)):
     """JSON body ile analiz başlatma endpoint'i"""
     try:
         return await analiz_baslat(
@@ -603,7 +572,7 @@ async def analiz_baslat_json(request: Request, analysis_request: AnalysisRequest
 
 @app.get("/analiz/durum/{analiz_id}")
 async def analiz_durum(request: Request, analiz_id: str,
-                      current_user: dict = Depends(get_current_user_optional)):
+                      current_user: dict = Depends(get_current_user_from_header)):
     """Analiz durumu sorgulama"""
     await check_rate_limit(request)
     update_metrics("/analiz/durum")
@@ -614,6 +583,9 @@ async def analiz_durum(request: Request, analiz_id: str,
         
         if not os.path.exists(analiz_klasoru):
             safe_error_response(404, "Analiz bulunamadı")
+        
+        # Database'den analiz bilgisi al
+        analiz_bilgisi = get_analysis(analiz_id)
         
         # Log dosyasını oku
         log_icerik = ""
@@ -630,9 +602,10 @@ async def analiz_durum(request: Request, analiz_id: str,
         
         return JSONResponse({
             "analiz_id": analiz_id,
-            "durum": "tamamlandi" if sonuc else "devam_ediyor",
+            "durum": analiz_bilgisi.get("durum", "bilinmiyor") if analiz_bilgisi else "bulunamadı",
             "log": log_icerik,
             "sonuc": sonuc,
+            "analiz_bilgisi": analiz_bilgisi,
             "gpu_durumu": gpu_detector.get_gpu_status()
         })
         
@@ -643,9 +616,68 @@ async def analiz_durum(request: Request, analiz_id: str,
         update_metrics("/analiz/durum", error=True)
         safe_error_response(500, "Durum sorgulama hatası", str(e))
 
+# Model Management Endpoints
+@app.get("/models/list")
+async def list_models(admin_user: dict = Depends(get_admin_user_from_header)):
+    """List available models"""
+    try:
+        models = model_manager.list_available_models()
+        return {"success": True, "models": models}
+    except Exception as e:
+        safe_error_response(500, "Model listeleme hatası", str(e))
+
+@app.post("/models/train")
+async def train_model(request: Request, training_request: ModelTrainingRequest,
+                     admin_user: dict = Depends(get_admin_user_from_header)):
+    """Train custom model"""
+    await check_rate_limit(request)
+    
+    try:
+        # Validate directories
+        if not os.path.exists(training_request.images_dir):
+            safe_error_response(400, "Images directory not found")
+        
+        if not os.path.exists(training_request.annotations_dir):
+            safe_error_response(400, "Annotations directory not found")
+        
+        # Start training
+        output_model_path = f"models/{training_request.model_name}.pt"
+        
+        model_info = model_trainer.create_training_pipeline(
+            images_dir=training_request.images_dir,
+            annotations_dir=training_request.annotations_dir,
+            output_model_path=output_model_path
+        )
+        
+        logger.info(f"Model training completed: {training_request.model_name}")
+        
+        return {
+            "success": True,
+            "message": "Model training completed",
+            "model_info": model_info
+        }
+        
+    except Exception as e:
+        safe_error_response(500, "Model eğitim hatası", str(e))
+
+@app.delete("/models/{model_name}")
+async def delete_model(model_name: str, admin_user: dict = Depends(get_admin_user_from_header)):
+    """Delete a model"""
+    try:
+        success = model_manager.delete_model(model_name)
+        
+        if success:
+            return {"success": True, "message": f"Model {model_name} deleted"}
+        else:
+            safe_error_response(404, "Model not found")
+            
+    except Exception as e:
+        safe_error_response(500, "Model silme hatası", str(e))
+
+# Continue with other endpoints...
 @app.get("/analiz/rapor/{analiz_id}")
 async def rapor_indir(request: Request, analiz_id: str, format: str = "pdf",
-                     admin_user: dict = Depends(get_admin_user)):
+                     admin_user: dict = Depends(get_admin_user_from_header)):
     """Rapor indirme endpoint'i"""
     await check_rate_limit(request)
     update_metrics("/analiz/rapor")
@@ -691,7 +723,7 @@ async def rapor_indir(request: Request, analiz_id: str, format: str = "pdf",
 
 @app.get("/analiz/harita/{analiz_id}")
 async def harita_verisi(request: Request, analiz_id: str,
-                       current_user: dict = Depends(get_current_user_optional)):
+                       current_user: dict = Depends(get_current_user_from_header)):
     """GeoJSON formatında harita verisi"""
     await check_rate_limit(request)
     update_metrics("/analiz/harita")
@@ -718,7 +750,7 @@ async def harita_verisi(request: Request, analiz_id: str,
 
 # Admin endpoints
 @app.post("/admin/yedek-olustur")
-async def yedek_olustur(request: Request, admin_user: dict = Depends(get_admin_user)):
+async def yedek_olustur(request: Request, admin_user: dict = Depends(get_admin_user_from_header)):
     """Sistem yedeği oluştur"""
     await check_rate_limit(request)
     update_metrics("/admin/yedek-olustur")
@@ -736,7 +768,7 @@ async def yedek_olustur(request: Request, admin_user: dict = Depends(get_admin_u
         safe_error_response(500, "Yedek oluşturma hatası", str(e))
 
 @app.get("/admin/yedekler")
-async def yedekleri_listele(request: Request, admin_user: dict = Depends(get_admin_user)):
+async def yedekleri_listele(request: Request, admin_user: dict = Depends(get_admin_user_from_header)):
     """Mevcut yedekleri listele"""
     await check_rate_limit(request)
     update_metrics("/admin/yedekler")
@@ -751,25 +783,8 @@ async def yedekleri_listele(request: Request, admin_user: dict = Depends(get_adm
         update_metrics("/admin/yedekler", error=True)
         safe_error_response(500, "Yedek listeleme hatası", str(e))
 
-@app.post("/admin/yedek-temizle")
-async def yedek_temizle(request: Request, admin_user: dict = Depends(get_admin_user)):
-    """Eski yedekleri temizle"""
-    await check_rate_limit(request)
-    update_metrics("/admin/yedek-temizle")
-    
-    try:
-        backup_manager.cleanup_old_backups()
-        logger.info(f"Yedek temizleme yapıldı - {admin_user['kullanici_adi']}")
-        return {
-            "success": True,
-            "message": "Eski yedekler temizlendi"
-        }
-    except Exception as e:
-        update_metrics("/admin/yedek-temizle", error=True)
-        safe_error_response(500, "Yedek temizleme hatası", str(e))
-
 @app.get("/admin/sistem-durumu")
-async def sistem_durumu(request: Request, admin_user: dict = Depends(get_admin_user)):
+async def sistem_durumu(request: Request, admin_user: dict = Depends(get_admin_user_from_header)):
     """Sistem durumu bilgileri"""
     await check_rate_limit(request)
     update_metrics("/admin/sistem-durumu")
@@ -787,6 +802,9 @@ async def sistem_durumu(request: Request, admin_user: dict = Depends(get_admin_u
         from .database import get_all_analyses
         analyses = get_all_analyses()
         
+        # Kullanıcı istatistikleri
+        user_stats = auth_manager.get_user_stats(admin_user["kullanici_id"])
+        
         return {
             "success": True,
             "system": {
@@ -802,6 +820,11 @@ async def sistem_durumu(request: Request, admin_user: dict = Depends(get_admin_u
                 "completed": len([a for a in analyses if a['durum'] == 'tamamlandi']),
                 "recent": analyses[:5]  # Son 5 analiz
             },
+            "models": {
+                "available": len(model_manager.list_available_models()),
+                "best_model": model_manager.get_best_model()
+            },
+            "user_stats": user_stats,
             "metrics": metrics_data
         }
     except Exception as e:
