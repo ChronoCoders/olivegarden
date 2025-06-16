@@ -4,7 +4,7 @@
 bind = "0.0.0.0:8000"
 
 # Worker ayarları
-workers = 4
+workers = 2
 worker_class = "uvicorn.workers.UvicornWorker"
 worker_connections = 1000
 max_requests = 1000
@@ -25,13 +25,6 @@ access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"
 preload_app = True
 daemon = False
 pidfile = "/tmp/gunicorn.pid"
-user = 1000
-group = 1000
-tmp_upload_dir = None
-
-# SSL ayarları (gerekirse)
-# keyfile = "/path/to/keyfile"
-# certfile = "/path/to/certfile"
 
 # Worker restart ayarları
 max_worker_memory = 2048  # MB
