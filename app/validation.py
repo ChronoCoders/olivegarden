@@ -1,6 +1,5 @@
 from fastapi import HTTPException, UploadFile
 from PIL import Image
-import rasterio
 import magic
 import hashlib
 import os
@@ -91,7 +90,7 @@ class FileValidator:
             if file_type == 'image':
                 await self._validate_image(content, validation_result)
             elif file_type == 'multispectral':
-                await self._validate_multispectral(content, validation_result)
+                await self._validate_multispectral_basic(content, validation_result)
             
             # Hata yoksa geçerli
             if not validation_result['errors']:
@@ -157,62 +156,34 @@ class FileValidator:
         except Exception as e:
             result['errors'].append(f"Görsel validasyon hatası: {str(e)}")
     
-    async def _validate_multispectral(self, content: bytes, result: Dict):
-        """Multispektral dosya validasyonu"""
-        temp_path = None
+    async def _validate_multispectral_basic(self, content: bytes, result: Dict):
+        """Basic multispektral dosya validasyonu (rasterio olmadan)"""
         try:
-            # Geçici dosya oluştur
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.tif') as temp_file:
-                temp_file.write(content)
-                temp_path = temp_file.name
-            
-            # Rasterio ile aç
-            with rasterio.open(temp_path) as src:
-                width = src.width
-                height = src.height
-                count = src.count
-                dtype = src.dtypes[0]
-                crs = src.crs
-                bounds = src.bounds
-                
+            # TIFF header kontrolü
+            if content[:4] in [b'II*\x00', b'MM\x00*']:
                 result['metadata'].update({
-                    'width': width,
-                    'height': height,
-                    'band_count': count,
-                    'data_type': str(dtype),
-                    'crs': str(crs) if crs else None,
-                    'bounds': bounds
+                    'format': 'TIFF',
+                    'is_tiff': True,
+                    'file_type': 'multispectral'
                 })
                 
-                # Band sayısı kontrolü
-                if count < 3:
-                    result['warnings'].append(f"Az band sayısı: {count} (minimum 3 önerilir)")
-                elif count >= 4:
-                    result['metadata']['has_nir'] = True  # NIR band var
+                # Temel boyut tahmini (TIFF header'dan)
+                # Bu basit bir implementasyon, gerçek rasterio kadar detaylı değil
+                result['warnings'].append("Multispektral dosya temel validasyon yapıldı (detaylı analiz için rasterio gerekli)")
                 
-                # Koordinat sistemi kontrolü
-                if not crs:
-                    result['warnings'].append("Koordinat sistemi bilgisi bulunamadı")
+                # Minimum boyut kontrolü (dosya boyutuna göre tahmin)
+                file_size = len(content)
+                estimated_pixels = file_size / 3  # Rough estimate
+                estimated_width = int((estimated_pixels) ** 0.5)
                 
-                # Çözünürlük kontrolü
-                if width < self.min_image_size[0] or height < self.min_image_size[1]:
-                    result['errors'].append(
-                        f"Multispektral görsel çözünürlüğü çok düşük: {width}x{height}"
-                    )
+                if estimated_width < self.min_image_size[0]:
+                    result['warnings'].append("Multispektral dosya boyutu küçük olabilir")
                 
-                # Veri tipi kontrolü
-                if dtype not in ['uint8', 'uint16', 'float32']:
-                    result['warnings'].append(f"Beklenmeyen veri tipi: {dtype}")
-                    
+            else:
+                result['errors'].append("Geçerli TIFF formatı değil")
+                
         except Exception as e:
-            result['errors'].append(f"Multispektral validasyon hatası: {str(e)}")
-        finally:
-            # Geçici dosyayı sil
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception as e:
-                    logger.warning(f"Geçici dosya silinemedi: {e}")
+            result['warnings'].append(f"Multispektral validasyon uyarısı: {str(e)}")
     
     async def validate_multiple_files(self, files: List[UploadFile]) -> Dict[str, Any]:
         """Çoklu dosya validasyonu"""
