@@ -1,97 +1,23 @@
-# Git
+# Git ile takip edilmeyecekler
 .git
 .gitignore
 
-# Python
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.Python
-env
-pip-log.txt
-pip-delete-this-directory.txt
-.tox
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.venv
-venv/
-
-# Test data
-test_data/
-tests/__pycache__/
-.pytest_cache/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Logs
-*.log
-logs/
-
-# Temporary files
-*.tmp
-*.temp
-.tmp/
-temp/
-
-# Documentation build
-docs/_build/
-
-# Backup files
-*.bak
-*.backup
-
-# Environment files
+# Ortam dosyaları
+.env
 .env.local
-.env.development
-.env.test
-.env.production
 
-# Node modules (if any)
-node_modules/
+# Python cache
+__pycache__/
+*.pyc
 
-# Build artifacts
-build/
-dist/
-*.egg-info/
+# Test çıktıları
+htmlcov/
+.coverage
 
-# Jupyter notebooks
-.ipynb_checkpoints/
-
-# Large model files (will be downloaded)
-models/*.pt
-models/*.onnx
-models/*.pb
-
-# Data directories
-data/analizler/
+# Local veritabanı veya yedekler
+db.sqlite3
 backups/
 
-# SSL certificates
-nginx/ssl/*.pem
-nginx/ssl/*.key
-nginx/ssl/*.crt
-
-# Docker
-.dockerignore
-Dockerfile*
-docker-compose*.yml
+# IDE & OS dosyaları
+.vscode/
+.DS_Store

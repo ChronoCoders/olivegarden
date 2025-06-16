@@ -1,21 +1,36 @@
-### Dockerfile (use Python 3.12 to ensure prebuilt NumPy wheels)
-# Use official slim Python base image
-FROM python:3.11-slim
+# Stage 1: Build
+FROM python:3.10-slim AS builder
 
-# Set working directory
+# Sistemdeki paket listesi güncellensin ve GDAL gibi C-kütüphaneleri yüklensin
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      build-essential \
+      gdal-bin libgdal-dev && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy and install dependencies
+# Sadece requirements dosyasını kopyalayıp bağımlılıkları kur
 COPY requirements.txt .
-RUN pip install --no-cache-dir \
-    --extra-index-url https://download.pytorch.org/whl/cpu \
-    -r requirements.txt
+RUN pip install --user --no-cache-dir -r requirements.txt
 
-# Copy application source
+# Stage 2: Runtime
+FROM python:3.10-slim
+
+# Sistem bağımlılıkları yine yükleniyor (yalnızca runtime için)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      gdal-bin libgdal-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Sadece user-level pip dizinini PYTHONPATH'e ekleyin
+ENV PATH=/root/.local/bin:$PATH
+
+# Uygulama kodunu kopyala
+COPY --from=builder /root/.local /root/.local
 COPY . .
 
-# Expose port (adjust if needed)
-EXPOSE 8000
-
-# Default command to run the app via Gunicorn
-CMD ["gunicorn", "main:app", "--config", "gunicorn.conf.py"]
+# Çalıştırma komutu
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "main:app"]
