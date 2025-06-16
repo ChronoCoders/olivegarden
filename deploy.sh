@@ -8,7 +8,7 @@ echo "Deploy script is running as $USER"
 # Sistem paketleri yükleme fonksiyonu
 install_packages() {
   sudo apt-get update
-  sudo apt-get install -y nginx fail2ban docker.io docker-compose
+  sudo apt-get install -y nginx fail2ban docker.io docker-compose python3-pip
 }
 
 install_nginx() {
